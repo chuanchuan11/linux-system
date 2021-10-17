@@ -169,10 +169,17 @@ int main()
 ![image](https://user-images.githubusercontent.com/42632290/137627694-ea772d1c-9bf6-492e-a9bf-189d52062520.png)
 
 
-- 2. 有名管道(FIFO)  
+- 3. 有名管道(FIFO)  
 
 
 
+- 4. 有名管道(FIFO) 
+
+- 5. 有名管道(FIFO) 
 
 
+- 6. 有名管道(FIFO) 
 
+- 7. 有名管道(FIFO) 
+
+- 8. 有名管道(FIFO) 
