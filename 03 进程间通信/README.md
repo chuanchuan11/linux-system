@@ -117,7 +117,8 @@ int main()
 ![image](https://user-images.githubusercontent.com/42632290/137627061-620c2184-afb4-47d4-aaf3-2242e9e1de81.png)  
         注意：无空间时候（或空间不足以写入所有字节），则写进程阻塞，直到出现空间把剩余字节写完为止  
         思考：如果获取无名管道的大小？
-              循环写入管道，直接阻塞，统计循环次数  
+              循环写入管道，直接阻塞，统计循环次数   
+              long fpathconf(int fd,int name)  该函数能直接获取管道的属性  
 代码示例：  
 ```cpp
 #include <unistd.h>
