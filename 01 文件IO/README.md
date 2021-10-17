@@ -570,6 +570,7 @@ convtype：控制如何解释参数
 	
 使用场景：  
     经常用来重定向进程的stdin,stdout和stderr，示例：   
+
 ```
    
    ![image](https://user-images.githubusercontent.com/42632290/137614339-46a8ded9-5fc7-4e54-a7d3-1cf5e2770d1c.png)
