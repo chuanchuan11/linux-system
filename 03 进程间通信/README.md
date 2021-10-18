@@ -4,24 +4,28 @@
 
 IPC：进程间通信，通过内核提供的缓冲区进行数据交换的机制。  
 
-早期UNIX进程间通信方式：   
-    (1) 无名管道(pipe) --- 最简单  
-    (2) 有名管道(fifo)  
-    (3) 信号(signal) --- 携带信息量最小  
-System v IPC  
-    (4) 共享内存(share memry) --- 速度最快  
-        mmap 实现  
-        shmat 实现  
-    (5) 消息队列(message queue)  
-    (6) 信号灯集(semaphore set)  
-    (7) 本地socket --- 最稳定  
-
+    早期UNIX进程间通信方式:  
+      (1) 无名管道(pipe) --- 最简单  
+      (2) 有名管道(fifo)  
+      (3) 信号(signal) --- 携带信息量最小  
+      
+    System V IPC  
+      (4) 共享内存(share memry) --- 速度最快  
+          shmget 实现  
+          mmap 实现[为了做比较，非System V IPC]  
+      (5) 消息队列(message queue)  
+      (6) 信号灯集(semaphore set)  
+      
+    Socket 套接字  
+      (7) 本地socket --- 最稳定  
+          多用于跨核网络通信，也可用于本地进程间通信  
+          
 - 2. 无名管道(pipe)  
 
-    (1) 无名管道具特点   
-        a) 只能用于具有亲缘关系的进程之间的通信（如：父子进程，兄弟进程）  
+    (1) 无名管道具特点  
+        a) 只能用于具有亲缘关系的进程之间的通信(如：父子进程，兄弟进程)  
         b) 单工通信模式，即单项数据传递，具有固定的读端和写端  
-        c) 它可以看成是一种特殊的文件，对于它的读写也可以使用普通的read、write 等函数，但是它不是普通的文件，不属于任何文件系统，只存在于内存中  
+        c) 它可以看成是一种特殊的文件，对于它的读写也可以使用普通的read、write 等函数，但它不是普通的文件，不属于任何文件系统，只存在于内存中  
         
 ![image](https://user-images.githubusercontent.com/42632290/137627186-70f17449-188d-418e-80e9-fee66510d50e.png)
 
@@ -171,11 +175,279 @@ int main()
 
 - 3. 有名管道(FIFO)  
 
+  (1) 有名管道特点  
+        a) 对应管道文件，可用于任意进程之间进行通信[解决pipe只能在亲属进程间通信的问题]   
+        b) 打开管道时可指定读写方式  
+        c) 通过文件IO操作，内容存放在内存中  
+        
+    FIFO是linux基础文件类型中的一种(伪文件)。但FIFO文件在磁盘上没有数据块[文件大小为0]，仅仅用来标识内核中一条通道。各进程可以打开这个文件进行read/write，实际上在读写内核通道，这样就实现了进程间通信  
+    注意：（1）不论是有名管道还是无名管道，当读端和写端都关闭的时候，存放在内存中的数就被释放掉了  
+  
+  (2) 有名管道创建  
+    
+```cpp
+    #include <unistd.h>  
+    #include <fcntl.h>  
+        int mkfifo(const char *path, mode_t mode);
+
+参数：  
+    path:   创建的管道文件路径  
+    mode:   管道文件的权限，如0666  
+
+返回值：  
+    成功：  返回0  
+    失败：  返回-1  
+    
+注意：  
+    （1）可以是相对路径，也可以是绝对路径，没有路径，则表示在当前文件下创建  
+    （2）管道文件主要是读写权限  
+
+```
+
+代码示例：  
+```cpp  
+//创建fifo
+int main(void) 
+{
+    if(mkfifo(“./myfifo”, 0666) < 0)  //执行成功后，在当前目录下会出现一个myfifo的文件
+    {
+          perror(“mkfifo”);exit(-1);
+    }
+     return 0;
+}
+
+//写fifo
+int main(void) 
+{
+     char buf[32];
+     int pfd;
+     if ((pfd = open(“myfifo”, O_WRONLY)) < 0)
+    {
+          perror(“open”);  exit(-1);
+     }
+     while ( 1 ) 
+    {
+          fgets(buf, 32, stdin);
+          write(pfd, buf, 32); 写入管道
+    }
+     close(pfd);//关闭打开的管道
+     return 0;
+  }
+
+//读fifo
+int main(void) 
+{
+     char buf[32];
+     int pfd;
+     if ((pfd = open(“./myfifo”, O_RDONLY)) < 0) 
+    {
+          perror(“open”); exit(-1);
+     }
+     while (read(pfd, buf, 32) > 0) 
+    {
+          printf(“the length of string is %d\n”,strlen(buf));
+     }
+     close(pfd);
+     return 0;
+  }
+```  
+
+  (3) 有名管道读写特性  
+
+     a) 当写端退出，读端读管道时若没有数据，会返回0  
+        当读端存在，读端读管道时若没有数据，则进入阻塞状态  
+     b) 当进程打开管道时，此时只有读端或只有写端存在，则程序直接进入阻塞状态[即阻塞在open调用处]直到另外一端被打开  
+         即：打开fifo文件的时候，read端会阻塞等待write端open，同理，write端也会阻塞等待read端open  
+
+- System V IPC通信
+
+    linux系统中进行进程间通信时，会发现有System V IPC 以及POXIS IPC 两种类型:  
+       (1) POSIX(Portable Operating System Interface)可移植操作系统接口。它是由IEEE(电子和电气工程师协会)开发，由ANSI(美国国家标准化学会)和OSI(国际标准化组织)两个机构标准化。由于早起各厂家对UNIX的开发各自为政，互相竞争，造成UNIX版本混乱，给软件移植造成困难，不利于UNIX长期发展，基于此，IEEE开发了POSIX，在源码级别定义了一组UNIX操作系统接口  
+       (2) System V(System Five),是Unix操作系统众多版本中的一支，最初由 AT&T 开发，在1983年第一次发布  
+    总结来说：System V 和 POXIS 是一种应用于系统的接口协议, 用于进程间通信的一种机制   
+
+    System V IPC 特点:    
+        每个IPC对象有唯一的ID  
+        IPC对象创建后一直存在，直接被显式删除  
+        每个IPC对象有一个关联的**KEY** 
+
+   **注意**：
+       (1) IPC对象创建后，一般只有创建IPC对象的进程能够识别到ID，为了让的进程也能获取，因此只能通过KEY来访问
+       (2) 每个进程必须生成相同的KEY，这样才能通过相同的KEY找到对应的IPC对象
+
+   **KEY的创建**  
+       (1) 通过函数创建key  
+       (2) 私有key（IPC_PRIVATE）则表示只有当前进程自己能够访问共享空间  
+       
+![image](https://user-images.githubusercontent.com/42632290/137745911-4f4f43e1-558e-45c6-a717-9b66ba5ed12b.png)  
+
+   **相关函数**  
+
+```cpp
+     #include <sys/types.h>
+     #include <sys/ipc.h>
+         key_t ftok(const char *path, int proj_id);
+
+参数：
+    path：    存在且可访问的文件路径  
+    proj_id:  用于生成key的数字，不能为0  
+
+返回值：  
+    成功：返回合法key值  
+    失败：返回-1  
+    
+代码示例：
+
+int main()
+{
+   key_t  key;
+   if ((key = ftok(“.”, ‘a’)) == -1) //创建key值
+   {
+      perror(“key”);
+      exit(-1);
+}   
+```
+
+- 4. 共享内存(shmget)  
+
+    共享内存指的是两个或者多个进程共享一个给定的存储区  
+    
+  (1) 共享内存特点：  
+    
+     a) 共享内存是最快的一种IPC方式，进程可以直接读写内存，而不需要任何数据的拷贝  
+     b) 共享内存在内核空间创建，可**被进程映射到用户空间**访问，使用灵活  
+     c) 由于多个进程可同时访问共享内存，因此需要同步和互斥机制配置使用  
+        
+     与管道相比：管道使用时候需要在内核空间和用户空间进行切换，数据的拷贝，内存开销大；因此共享内存的效率最高  
+     
+  **共享内存使用步骤：**  
+     a) 创建/打开共享内存  
+     b) 映射共享内存，即把指定的共享内存映射到进程的地址空间用于访问  
+     c) 读写共享内存  
+     d) 撤销共享内存映射  
+     e) 删除共享内存对象  
+
+ **注意：**  
+     a) 共享内存创建好之后，需要进行映射后才可以访问（即把指定的共享内存映射到进程的地址空间用于访问）  
+     b) 类似于malloc，IPC创建的一个特殊的地址范围，进程可以将它连接到自己的地址空间进行访问  
+     c) 不删除，则共享内存一直存在  
+
+  (2) 共享内存-创建
+
+```cpp
+    #include  <sys/ipc.h>  
+    #include <sys/shm.h>  
+      int  shmget(key_t key,  int size, int shmflg);  
+
+参数：  
+    key：    和共享内存关联的key，IPC_PRIVATE 或 ftok生成  
+    Size：   创建的共享内存大小  
+    shmflg： 共享内存标志位  IPC_CREAT | 0666
+             IPC_CREAT 表示如果与key关联的共享不存在则新建，若存在直接打开  
+返回值：  
+    成功： 返回共享内存的id
+    失败： 返回-1 
+
+示例1：创建/打开一个和key关联的共享内存，大小为1024字节，权限为0666
+
+  key_t key;
+  int shmid;
+ 
+  if ((key = ftok(“.”, ‘m’)) == -1) {
+     perror(“ftok”); exit(-1);
+  }
+  if ((shmid = shmget(key, 1024, IPC_CREAT|0666)) < 0) {
+     perror(“shmget”); exit(-1);
+  }
+```  
+
+  (3) 共享内存-映射与读写
+
+```cpp
+    #include <sys/types.h>
+    #include <sys/shm.h>  
+        void  *shmat(int shmid,  const void *shmaddr,  int shmflg);  
+
+参数：  
+    shmid：       要映射的共享内存id  
+    shmaddr：     映射后的地址， NULL表示由系统自动映射 
+    shmflg：      标志位 0表示可读写；SHM_RDONLY表示只读
+    
+返回值：  
+    成功：返回映射后的地址
+    失败： 返回(void *)-1  
+  
+注意：  
+    将共享内存连接到当前进程的地址空间，返回地址的类型根据存放的数据类型进行确定
+
+代码示例：  
+
+char *addr;
+int  shmid;
+
+if ((addr = (char *)shmat(shmid, NULL, 0)) == (char *)-1) {
+     perror(“shmat”); exit(-1);
+}
+fgets(addr, N, stdin); //往共享内存存放键盘输入的字符串
+
+```
+
+  (4) 共享内存-撤销映射
+
+```cpp
+    #include <sys/types.h>
+    #include <sys/shm.h>  
+        int  shmdt(void * shmaddr);  
+        
+参数:
+    shmaddr:  撤销的共享内存地址  
+
+返回值：  
+    成功:  返回0  
+    失败:  返回-1  
+
+注意：
+    不使用共享内存时，应撤销映射  
+    进程结束时自动撤销  
+    共享内存撤销并没有删除，只是对当前进程不再可访问
+```
+
+  (5) 共享内存-控制
+
+```cpp
+    #include <sys/ipc.h>
+    #include <sys/shm.h>  
+        int  shmctl(int shmid, int cmd, struct shmid_ds * buf); 
+参数：  
+    shmid：  要操作的共享内存的id  
+    cmd：    要执行的操作，取值如下：  
+             IPC_STAT    获取共享内存属性  
+             IPC_SET     设置共享内存属性  
+             IPC_RMID    删除共享内存ID  
+    buf:     保存或设置共享内存属性的地址 
+              Struct  shmid_ds{
+                   uid_t  shm_perm.uid;
+                   uid_t  shm_perm.gid;
+                   mode_t  shm_perm.mode;
+              }
+返回值：   
+  成功：  返回0  
+  失败：  返回-1
+
+注意事项：  
+  a) 每块共享内存大小有限制  
+  b)
+  c)
+  d)
+  e)
+
+代码示例：  
 
 
-- 4. 有名管道(FIFO) 
 
-- 5. 有名管道(FIFO) 
+```
+
+- 5. 共享内存(mmap) 
 
 
 - 6. 有名管道(FIFO) 
