@@ -594,6 +594,176 @@ int main()
       当映射关系解除后，对原来映射地址的访问将导致段错误发生   
 ```
 
+  (3) 示例1：修改MAP_SHARED属性的共享内存，能影响到文件  
+
+```cpp
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <string.h>
+
+int main()
+{
+    int fd = open("mem.txt",O_RDWR);     1. //创建并且截断文件
+    //int fd = open("mem.txt",O_RDWR|O_CREAT|O_TRUNC,0664);//创建并且截断文件
+    //2. 设置文件大小  
+    ftruncate(fd,8);   
+    //3. 创建映射区
+   char *mem = mmap(NULL,20,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);
+    //char *mem = mmap(NULL,8,PROT_READ|PROT_WRITE,MAP_PRIVATE,fd,0);
+
+    if(mem == MAP_FAILED){
+        perror("mmap err");
+        return -1;
+    }
+    close(fd);
+    //4. 拷贝数据
+    strcpy(mem,"helloworld");  //通过cat读文件，发现文件内容发生了变化  
+
+    //5. 释放mmap
+    if(munmap(mem,20) < 0){
+        perror("munmap err");
+    }
+    return 0;
+}
+```
+
+  (4) 示例2：匿名映射  
+   
+```cpp
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+int main()
+{
+    //1. 创建内存映射区
+    int *mem = mmap(NULL,4,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_ANON,-1,0);
+	
+    //是否创建成功
+    if(mem == MAP_FAILED){
+        perror("mmap err");
+        return -1;
+    }
+	
+    //2. 创建子进程
+    pid_t pid = fork();
+
+    //3. 针对父子进程处理
+    if(pid == 0 ){
+        //son 
+        *mem = 101;
+        printf("child,*mem=%d\n",*mem);
+        sleep(3);
+        printf("child,*mem=%d\n",*mem);
+    }else if(pid > 0){
+        //parent 
+        sleep(1);
+        printf("parent,*mem=%d\n",*mem);
+        *mem = 10001;
+        printf("parent,*mem=%d\n",*mem);
+        wait(NULL); //回收子进程
+    }
+
+    munmap(mem,4);
+    return 0;
+}
+
+优点：创建映射区不需要依赖于文件，比较方便  
+缺点：由于没有产生文件，只能进行有血缘关系进程之间的通信 
+注意：
+    MAP_ANON或ANONYMOUS这两个宏在有些unix系统没有  
+    可以借助/dev/zero 进行实现[聚宝盆文件，可以随意映射，/dev/null为黑洞文件 可以放置任何垃圾信息]  
+    
+```
+
+  (5) 示例3：任意进程之间通信  
+
+```cpp
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+typedef struct  _Student{
+    int sid;
+    char sname[20];
+}Student;
+
+int main(int argc,char *argv[])
+{
+    if(argc != 2){
+        printf("./a.out filename\n");
+        return -1;
+    }
+    
+    // 1. open file 
+    int fd = open(argv[1],O_RDWR|O_CREAT|O_TRUNC,0666);
+    int length = sizeof(Student);
+
+    ftruncate(fd,length);
+
+    // 2. mmap
+    Student * stu = mmap(NULL,length,PROT_READ|PROT_WRITE,MAP_SHARED,fd,0);
+    
+	//判断返回值
+    if(stu == MAP_FAILED){
+        perror("mmap err");
+        return -1;
+    }
+    int num = 1;
+    // 3. 修改内存数据
+    while(1){
+        stu->sid = num;
+        sprintf(stu->sname,"xiaoming-%03d",num++);
+        sleep(1);//相当于没隔1s修改一次映射区的内容
+    }
+    // 4. 释放映射区和关闭文件描述符
+    munmap(stu,length);
+    close(fd);
+
+    return 0;
+}
+
+注意：
+    如果进程要通信，flags必须设置为MAP_SHARED, MAP_PRIVATE则不会通信  
+    
+学习一个命令技巧：  
+    head -n oldfiile > newfile  [将oldfile开头n行内容输入到newfile]  
+```
+  (6)mmap八问：
+
+```cpp
+    a) 如果更改mem变量的地址，释放的时候munmap，传入mem还能成功吗？  不能！
+
+    b) 如果对mem越界操作会怎么样？文件的大小对映射区操作有影响，尽量避免 [文件较大，即使越界也能写入，文件较小，则只写实际大小]  
+
+    c) 如果文件偏移量随便填个数会怎么样？ offset必须是 4k 的整数倍，否则报错
+
+    d) 如果文件描述符先关闭，对mmap映射有没有影响？ 没有影响 [只要做了，mmap操作则已经在内存中申请了映射空间，即使fd提前关闭，对读写并没有影响]
+
+    e) open的时候，可以新创建一个文件来创建映射区吗？ 不可以用大小为0的文件 [可以使用**ftruncate**设置大小]  
+
+    f) 文件选择O_WRONLY，可以吗？ 不可以： Permission denied [在调用mmap做映射时候，隐含了一次读操作] 
+
+    g) 当选择MAP_SHARED的时候，open文件选择O_RDONLY，prot可以选择 PROT_READ|PROT_WRITE吗？ Permission denied [SHARED的时候，映射区的权限<= open文件的权限]
+
+    h) 如果不判断返回值会怎么样？ 必须判断返回值，因为很容易报错误,使用mmap时候一定要判断  
+
+```
+
+  (7)mmap与shmget的区别  
+
 
 
 
