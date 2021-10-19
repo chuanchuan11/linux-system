@@ -443,7 +443,7 @@ fgets(addr, N, stdin); //往共享内存存放键盘输入的字符串
   f) 通常删除的共享内存段还能继续使用，直到从最后一个进程中分离为止，但这个行为并未在规范中定义，最好不要依赖它  
 
 代码示例：  
-// 进程1写共享内存  
+// 进程1读共享内存  
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -487,7 +487,7 @@ int main()
         
     }
 
-    //4. 把共享内存从当前进程中分离
+    //4. 把共享内存从当前进程中分离，撤销共享内存
     shmdt(shared)
     //5. last process 删除共享内存
     shmctl(shmid, IPC_RMID, 0)  
@@ -495,11 +495,64 @@ int main()
     return 0;
 }
 //进程2读共享内存  
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <unistd.h>
+#include <sys/shm.h>
 
+struct shared_use_st
+{  
+    int rw_flag;   //作为一个标志，1：表示可读，0表示可写 
+    char text[256];//记录写入和读取的文本
+};
 
+int main()
+{
+    key_t key;
+    int shmid;
+    void * addr = NULL;//存放字符串
+    struct shared_use_st * shared = NULL;
+
+    //1. through ftok generate key
+    key=ftok(".", 'a')
+    //2. creat share memory  
+    shmid=shmget(key, 1024, IPC_CREAT|0666)
+    //3. map 
+    addr=shmat(shmid, NULL, 0)
+
+    shared = (struct shared_use_st *)addr; 
+    shared->rw_flag = 0;
+    while(1)
+    {
+        if(shared->rw_flag == 0)
+        {
+            printf("please inputs:");
+            fgets(shared->text, 256, stdin);//write share memory
+            shared->rw_flag = 1;
+            if(strncmp(shared->text, "end", 3) == 0)break; 
+        }
+        else
+        {
+            sleep(1);
+        }
+    }
+    //4. 把共享内存从当前进程中分离
+    shmdt(shared)
+    return 0;
+}
 ```
 
 - 5. 共享内存(mmap) 
+
+
+
+
+
+
+
+
 
 
 - 6. 有名管道(FIFO) 
