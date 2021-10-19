@@ -310,7 +310,7 @@ int main()
 
 - 4. 共享内存(shmget)  
 
-    共享内存指的是两个或者多个进程共享一个给定的存储区  
+    共享内存允许两个或多个进程共享一给定的存储区，因为数据不需要来回复制，所以是最快的一种进程间通信机制。共享内存可以通过mmap()映射普通文件 （特殊情况下还可以采用匿名映射）机制实现，也可以通过systemV共享内存机制实现。应用接口和原理很简单，内部机制复杂。为了实现更安全通信，往往还与信号灯等同步机制共同使用  
     
   (1) 共享内存特点：  
     
@@ -546,11 +546,53 @@ int main()
 
 - 5. 共享内存(mmap) 
 
+    mmap()系统调用使得进城之间通过映射同一个普通文件实现共享内存（特殊情况下还可以采用匿名映射）。普通文件被映射到进程地址空间后，进程可以像访问普通内存一样对文件进行访问，不必再调用read,write等操作  
+    
+![image](https://user-images.githubusercontent.com/42632290/137925634-6d2199a4-55ca-4e79-84c6-240b670afbe3.png)
 
+  (1) mmap()函数: 创建内存映射区   
 
+```cpp
+    #include <sys/mman.h>
+        void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 
+参数：  
+    addr:     传NULL
+    length:   映射到调用进程地址空间的字节数，它从被映射文件开头offset个字节开始算起，一般offset设置为0，表示从文件开始映射  
+    prot:     指定共享内存的访问权限    
+              PROT_READ（可读）   
+              PROT_WRITE （可写）  
+              PROT_EXEC （可执行）  
+              PROT_NONE（不可访问）  
+    flags:    共享内存标志位，常见值如下：  
+              MAP_SHARED   共享映射，进程共享映射区，对内存的修改会影响到源文件    
+              MAP_PRIVATE  私有映射，进程各自独占映射区  
+    fd:       fd为即将映射到进程空间的文件描述字，一般由open()返回  
+              fd可以指定为-1，此时须指定flags参数未MAP_ANON，表明进行的是匿名映射（不涉及具体的文件名，避免了文件的创建及打开，很显然只能用于具有亲缘关系的进程间通信）  
+    offset:   偏移量，一般设为 0 表示从文件头开始映射  
 
+返回值：   
+    成功：  返回可用的内存首地址  
+    失败：  返回MAP_FAILED  
+```
+    
+  (2) munmap()函数：解除内存映射区   
+  
+```cpp
+    #include <sys/mman.h>
+        int munmap(void* addr, size_t length);
 
+参数：  
+    addr:    调用mmap()时返回的地址  
+    length:  创建映射区的大小
+
+返回值：  
+    成功： 返回0  
+    失败： 返回-1  
+
+注意：  
+      当映射关系解除后，对原来映射地址的访问将导致段错误发生   
+```
 
 
 
