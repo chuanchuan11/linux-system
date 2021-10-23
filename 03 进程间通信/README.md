@@ -790,6 +790,334 @@ int main(int argc,char *argv[])
 
 - 6. 消息队列(msg) 
 
-- 7. 信号灯机制() 
+     消息队列是System V IPC对象的一种，消息队列由消息队列ID来唯一标识，消息队列就是一个消息的列表，用户可以在消息队列中添加消息、读取消息等  
 
-- 8. 信号(signal) 
+  (1) 消息队列特点  
+    
+      a) 消息队列是消息的链接表，存放与内核中  
+      b) 消息队列可以实现消息的随机查询，消息不一定要以先进先出的次序读取，也可以按照类型来发送/接收消息读取 
+      c) 与管道例子不同，消息队列不需要由自己进程提供同步方法（这是消息队列相对于管道的一个明显优势） 
+      
+      消息队列与命名管道类似，但少了打开和关闭管道方面的复杂性。使用消息队列并未解决我们在使用命名管道时遇到的一些问题，如管道满时的阻塞问题。消息队列提供了一种在两个不相关进程间传递数据的简单有效的方法。与命名管道相比：消息队列的优势在于，它独立于发送和接收进程而存在，这消除了在同步命名管道的打开和关闭时可能产生的一些困难。消息队列提供了一种从一个进程向另一个进程发送一个数据块的方法。而且每个数据块被认为含有一个类型，接收进程可以独立地接收含有不同类型值的数据块  
+
+      优点：
+          A. 我们可以通过发送消息来几乎完全避免命名管道的同步和阻塞问题  
+          B. 我们可以用一些方法来提前查看紧急消息  
+
+      缺点：
+          A. 与管道一样，每个数据块有一个最大长度的限制  
+          B. 系统中所有队列所包含的全部数据块的总长度也有一个上限  
+
+     Linux系统中有两个宏定义:  
+         MSGMAX, 以字节为单位，定义了一条消息的最大长度  
+         MSGMNB, 以字节为单位，定义了一个队列的最大长度  
+
+     限制：  
+     由于消息缓冲机制中所使用的缓冲区为共用缓冲区，因此使用消息缓冲机制传送数据时，两通信进程必须满足如下条件  
+     （1）在发送进程把写入消息的缓冲区挂入消息队列时，应禁止其他进程对消息队列的访问，否则，将引起消息队列的混乱。同理，当接收进程正从消息队列中取消息时，也应禁止其他进程对该队列的访问  
+     （2）当缓冲区中无消息存在时，接收进程不能接收任何消息；而发送进程是否可以发送消息，则只由发送进程是否能够申请缓冲区决定         
+  
+![image](https://user-images.githubusercontent.com/42632290/138537901-df4f3a68-b32e-4dfd-a1ef-f7962c6a0a17.png)
+
+  (2) 消息队列使用步骤  
+
+    创建/打开消息队列     msgget  
+    向消息队列发送消息    msgsnd  
+    从消息队列接收消息    msgrcv  
+    控制消息队列          msgctl  
+
+![image](https://user-images.githubusercontent.com/42632290/138537966-d2438cbd-232c-4a6b-9fab-1456fa2e9280.png)
+
+  - 消息队列创建/打开 - msgget 
+ 
+```cpp
+
+    #include <sys/ipc.h>
+    #include <sys/msg.h>  
+        int msgget(key_t key, int msgflg);
+
+参数： 
+    key：    消息队列关系的key，取值为IPC_PRIVATE 或 通过ftok()创建  
+             私有消息队列只能在一个进程中使用，通过ftok函数创建的则可以在多进程通信  
+    msgflg： 标志位 IPC_CREAT | 0666  
+             有文件存在则直接检查权限，没有则创建  
+
+返回值：
+    成功：    返回消息队列id  
+    失败：    返回-1  
+
+//示例
+int main(){
+   key_t  key;
+   int msgid;
+   if ((key = ftok(“.”, ‘q’)) == -1){
+        perror(“key error”); exit(-1);
+   } 
+   if((msgid = msgget(key, IPC_CREAT|0666)) < 0){
+        perror(“msgget error”); exit(-1);
+   }  
+```
+
+  - 消息发送  - msgsnd  
+  
+```cpp
+    #include <sys/ipc.h>
+    #include <sys/msg.h>  
+        int  msgsnd(int msgid,  const void *msgp,  size_t  size,  int  msgflg);  
+
+参数： 
+    msgid:    消息队列id  
+    msgp:     消息缓冲区地址  
+              自定义的消息结构体，存放消息  
+    size:     消息正文长度  
+    msgflg:   标志位0 或 IPC_NOWAIT 
+              0：  发送成功时返回  
+	      IPC_NOWAIT:  不论是否成功，立马返回结果  
+
+返回值：  
+    成功：  返回0
+    失败：  返回-1
+
+//示例  
+struct{
+    long type;
+    char text[64];
+}buf;
+#define len  ( sizeof(MSG) – sizeof(long) )  //消息正文长度  
+
+Int main(){
+    …创建/打开消息队列
+    bug.type = 100;  //消息类型一般为正整数  
+    fgets(buf.text,  64,  stdin);  //存放数据  
+    msgsnd(msgid,  &buf,  len,  0);  //发送数据，成功才返回结果  
+    …
+}
+
+注意： 一般第一个进程创建消息队列，后边的进程根据key去操作消息队列  
+```
+
+  - 消息接收  - msgrcv  
+
+```cpp
+    #include <sys/ipc.h>
+    #include <sys/msg.h>  
+        int  msgrcv(int msgid, void *msgp, size_t size, long msgtype, int msgflg);  
+
+参数：  
+    msgid    消息队列id  
+    msgp     消息缓冲区地址  
+    size     指定接收的消息长度  
+    Msgtype  指定接受的消息类型  
+    msgflg   标志位0 或 IPC_NOWAIT  
+
+返回值：  
+    成功：  返回收到的消息长度  
+    失败：  返回-1  
+
+//示例
+struct{
+    long type;
+    char text[64];
+}buf;
+#define len  ( sizeof(MSG) – sizeof(long) )
+
+Int main(){
+    …打开消息队列
+    if(msgrcv(msgid,  &buf,  len,  100,  0) < 0){
+         Perror(“msgrcv error”); exit(-1);
+    }
+    …
+}
+```
+
+  - 消息队列控制 - msgctl  
+
+```cpp
+    #include <sys/ipc.h>
+    #include <sys/msg.h>  
+        int  msgctl(int msgid, int cmd, struct msqid_ds * buf);  
+
+参数：  
+    msgid：  消息队列id  
+    cmd：    要执行的操作，取值如下
+             IPC_STAT：    获取消息队列信息   
+	     IPC_SET：     设置消息队列信息  
+	     IPC_RMID ：   删除消息队列信息  
+    
+    buf：    存放消息队列属性的地址  
+             Struct  msqid_ds{  
+                 uid_t  msg_perm.uid;  
+                 uid_t  msg_perm.gid;  
+                 mode_t  msg_perm.mode;  
+             }  
+
+返回值：  
+    成功：  返回0
+    失败：  返回-1
+
+注意：  
+    一般最后一个结束的进程负责删除消息信息，删除操作不需要buf参数  
+    
+```
+
+  - 代码练习  
+    
+    两个进程通过消息队列轮流将键盘输入的字符串发送给对方，接收并打印对方发送的消息  
+
+```cpp
+//进程a
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+typedef struct 
+{
+    long mytype;
+    char mytest[64];
+}MSG;
+
+#define LEN  (sizeof(MSG)-sizeof(long))
+#define Type_A 100
+#define Type_B 200
+
+int main()
+{
+    key_t key;
+    MSG buf;
+    int msgid;    
+
+    key=ftok(".", 'q')
+    
+    msgid=msgget(key, IPC_CREAT|0666) //creat message
+
+    while(1)
+    {
+        buf.mytype = Type_B;
+        printf("=====>input contents to B:");
+	fgets(buf.mytest, 64, stdin);
+	
+	msgsnd(msgid, (void *)&buf, LEN, 0)  //send message
+ 
+	if(strcmp(buf.mytest, "quit\n") ==0)
+	{
+	    break;
+	}
+        printf("wait receive form B...\n");
+	
+	msgrcv(msgid, (void *)&buf, LEN, Type_A, 0) //receive message
+
+	if(strcmp(buf.mytest, "quit\n") == 0)
+	{
+	   msgctl(msgid, IPC_RMID, 0); //the last process remove message
+	   exit(0);
+	}
+        printf("receive message:%s\n", buf.mytest);
+
+    }
+
+    return 0;
+}
+
+//进程B
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+typedef struct 
+{
+    long mytype;
+    char mytest[64];
+}MSG;
+
+#define LEN  (sizeof(MSG)-sizeof(long))
+#define Type_A 100
+#define Type_B 200
+
+int main()
+{
+    key_t key;
+    MSG buf;
+    int msgid;    
+
+    key=ftok(".", 'q')
+
+    msgid=msgget(key, IPC_CREAT|0666) //creat message
+
+    while(1)
+    {
+        printf("wait receive from A\n");
+	
+        msgrcv(msgid, (void *)&buf, LEN, Type_B, 0) //receive
+
+        if(strcmp(buf.mytest, "qiut\n") == 0)
+        {
+             msgctl(msgid, IPC_RMID, 0); //last process remove message
+             exit(0);
+        }
+        printf("receive message:%s\n", buf.mytest);
+
+        buf.mytype = Type_A;
+        printf("==========>input content to A:");
+        fgets(buf.mytest, 64, stdin);
+	
+        msgsnd(msgid, (void *)&buf, LEN, 0)  //send message
+  
+        if(strcmp(buf.mytest, "qiut\n") ==0)
+        {
+            break;
+        }
+    }
+
+    return 0;
+}  
+
+
+
+```  
+
+  - 命令学习  
+  
+    消息队列独立于进程，故进程结束可以查看队列信息  
+
+    a) ipcs –q：查看系统中存在的消息队列  
+    b) ipcrm  -q  msgid：删除某个消息队列  
+
+- 7. 共享内存与消息队列的比较   
+
+     共享内存区是最快的可用IPC形式，一旦这样的内存区映射到共享它的进程的地址空间，这些进程间数据的传递就不再通过执行任何进入内核的系统调用来传递彼此的数据，节省了时间  
+     共享内存和消息队列，FIFO，管道传递消息的区别：  
+       ——消息队列，FIFO，管道的消息传递方式一般为  
+          1：服务器得到输入  
+          2：通过管道，消息队列写入数据，通常需要从进程拷贝到内核  
+          3：客户从内核拷贝到进程  
+          4：然后再从进程中拷贝到输出文件 
+	  
+      上述过程通常要经过4次拷贝，才能完成文件的传递
+      
+       ——共享内存只需要  
+           1:从输入文件到共享内存区  
+           2:从共享内存区输出到文件  
+
+      上述过程不涉及到内核的拷贝，所以花的时间较少，这也是共享内存效率高的原因  
+
+- 8. 信号灯机制() 
+
+
+
+
+
+
+- 9. 信号(signal) 
+
+
+
+
+
