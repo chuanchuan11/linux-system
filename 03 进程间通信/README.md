@@ -1358,9 +1358,21 @@ _error1:
 }
 ```
      
-     
+- 9. 进程间通信总结         
 
-- 9. 信号(signal) 
+
+
+
+
+
+
+
+参考：  
+(1) https://www.cnblogs.com/jiangknownet/p/14516630.html
+(2) https://www.cnblogs.com/guxuanqing/p/5978161.html
+
+
+- 10. 信号(signal) 
 
 
 
