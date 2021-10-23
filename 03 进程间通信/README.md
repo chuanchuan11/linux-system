@@ -14,7 +14,7 @@ IPC：进程间通信，通过内核提供的缓冲区进行数据交换的机�
           shmget 实现  
           mmap 实现[为了做比较，非System V IPC]  
       (5) 消息队列(message queue)  
-      (6) 信号灯集(semaphore set)  
+      (6) 信号量(semaphore set)  
       
     Socket 套接字  
       (7) 本地socket --- 最稳定  
@@ -1117,7 +1117,244 @@ int main()
 	 a) posix 无名信号量  
 	 b) system V  信号量  
 
-     (2) 
+     (2) 信号量特点  
+         
+	 a) System V 信号量是一个或多个计数信号灯的集合  
+	 b) 可同时操作集合中的多个信号灯  
+	 c) 申请多个资源时避免死锁问题的产生  
+            进程1在申请时候AB时候，可能进程2也在申请，造成P1有A，P2有B，然后两个进程都进入等待状态，发生死锁  
+	    
+![image](https://user-images.githubusercontent.com/42632290/138544137-31306425-ac27-4a2e-908e-0914f73b1e84.png)
+
+     (3) 信号量使用步骤  
+     
+         a) 创建/打开信号灯    semget  
+         b) 信号灯初始化       semctl  
+         c) P/V操作            semop  
+         d) 删除信号灯         semctl  
+
+- 信号量的创建/打开  
+```cpp
+    #include <sys/ipc.h>
+    #include <sys/sem.h>  
+        int  semget(ket_t  key,  int  nsems,  int  semflg); 
+
+参数：  
+    Key：    和信号量关联的key, IPC_PRIVATE 或 ftok   
+    Nsems:   集合中包含的计数信号灯数目   
+    Semflg:  标志位  IPC_CREAT|0666|IPC_EXCL  
+             IPC_CREAT： 信号量不存在，建立新的信号量，存在则获取    
+             IPC_EXCL  ：信号量不存在，建立新的信号量，存在则发送错误码    
+
+返回值：
+    成功: 返回信号灯id
+    失败: 返回-1
+
+示例：
+if((key = ftok(".",'s')) == -1){
+        perror("ftok");  exit(-1);
+    }
+if((semid = semget(key, 2, IPC_CREAT|0666)) < 0){
+        perror("semget"); exit(-1);
+    }
+
+```
+
+- 信号量的初始化    
+```cpp  
+    #include <sys/ipc.h>  
+    #include <sys/sem.h>  
+        int  semctl(int semid, int semnum, int cmd, …);  
+
+参数：  
+    semid：     要操作的信号灯集id  
+    semnum：    要操作的集合中信号灯编号  
+    cmd：       执行的操作, SETVAL或IPC_RMID  
+    union semun：  取决于cmd  
+                   union semun {  
+                         int val;  
+                         struct semid_ds *buf;   
+                         unsigned short  *arry;   
+                         struct seminfo  *_buf;   
+                         };  
+			 
+    semun联合体必须由程序员自己初始化，且至少包含以上几个成员
+
+返回值：
+    成功时返回0，失败时返回-1  
+    
+示例：  
+    //两个信号量，第一个初始化为1，第二个初始化为0  
+union semun  myun;  //定义一个共用体变量
+myun.val = 1;
+if (semctl(semid, 0, SETVAL, myun) < 0) {
+     perror(“semctl”);     exit(-1);
+}
+myun.val = 0;
+if (semctl(semid, 1, SETVAL, myun) < 0) {
+     perror(“semctl”);     exit(-1);
+}
+```
+     
+- 信号灯P/V操作       
+```cpp
+    #include <sys/ipc.h>
+    #include <sys/sem.h>  
+        int  semop(int semid, struct sembuf  *sops, unsigned nsops)
+
+参数：
+    semid:     要操作的信号灯集id  
+    sops:      描述对信号灯操作的结构体数组：  
+                Struct  sembuf{
+                  short  semnum;   //信号灯编号
+                  short  sem_op;   //-1: P操作  1: V操作
+                  short  sem_flg;  //
+                };    
+     nsops:    要操作的信号灯的个数    
+
+解释：sem_flg：  
+      0 ：        表示阻塞等待  
+      IPC_NOWAIT：表示非阻塞操作  
+      SEM_UNDO：  表示则当进程退出的时候会还原该进程的信号量操作，比如某进程做了P操作得到资源，但还没来得及做V操作时就异常退出了，此时，其他进程就只能都阻塞在P操作上，于是造成了死锁。若采取SEM_UNDO标志，就可以避免因为进程异常退出而造成的死锁    
+
+返回值：
+    成功时返回0，失败时返回-1
+
+示例：  
+Struct  sem_buf  buf[3];
+Buf[0].semnum = 0;   //0号  
+Buf[0].sem_op = -1;  //P操作   
+Buf[0].sem_flg = 0;  //成功时返回  
+Buf[1].semnum = 2;   //2号--> error, 应该连续存储
+...
+Semop(semid,  buf,  2) //三个信号灯，同时操作2个，则buf应该操作的是连续的两个，buf[0]=0和buf[1]=1
+```
+     
+  (4) 代码练习      
+
+需求：父子进程通过system V信号灯同步对共享内存的读写  
+      父进程从键盘输入带有空格的字符串到共享内存  
+      子进程删除字符串中的空格并打印  
+      父进程输入quit后删除共享内存和信号灯集，程序结束  
+```cpp
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+
+#define READ 0    //信号灯0作为读信号灯
+#define WRITE 1   //信号灯1作为写信号灯
+union semun       //self define semun
+{
+    int val;
+    struct semid_ds *buf;
+    unsigned short *arry;
+    struct seminfo *_buf;
+};
+
+void init_sem(int semid,int s[], int n)
+{
+    int i;
+    union semun myun;
+    for(i=0; i<n; i++)
+    {
+        myun.val=s[i];
+	semctl(semid, i, SETVAL, myun);
+    }
+}
+
+void pv(int semid, int num, int op)
+{
+    struct sembuf buf;
+
+    buf.sem_num = num; //operation which write or read
+    buf.sem_op = op;
+    buf.sem_flg = 0;
+    semop(semid, &buf, 1);
+
+}
+
+int main()
+{
+    int shmid, semid, s[]={0, 1};
+    pid_t pid;
+    key_t key;
+    char * shmaddr;
+
+    //1. key
+    key=ftok(".", 'q')
+
+    //2. creat sharm memory
+    shmid=shmget(key, 64, IPC_CREAT|0666)
+
+    //3. creat signal set
+    semid=semget(key, 2, IPC_CREAT|0666)
+
+    //4. signal set init
+    init_sem(semid, s, 2);
+    
+    //5. mapping 
+    if((shmaddr=(char *)shmat(shmid, NULL, 0)) == (char *)-1)
+    {
+        perror("shmat error");
+	goto _error2;
+    }
+    
+    //6. creat process
+    if((pid=fork()) < 0)
+    {
+        perror("fork error");
+	goto _error2;
+    }
+    else if(pid ==0)//child process 
+    {
+       char *q, *p;
+       while(1)
+       {
+           pv(semid, READ, -1); // p operation read  申请资源  
+           p = q = shmaddr;
+	   while(*q)
+	   {
+	       if(*q != ' ')
+	       {
+	           *p++ = *q;
+	       }
+	       q++;
+	   }
+	   *p = '\0';
+	   printf("%s", shmaddr);
+	   pv(semid, WRITE, 1); // v operation write  释放资源
+       }
+    }
+    else //father process input
+    {
+       while(1)
+       {
+           pv(semid, WRITE, -1);//p operation write  申请资源  
+	   printf("input characters with space:");
+	   fgets(shmaddr, 64, stdin);
+	   if(strcmp(shmaddr, "quit\n") ==0)
+	   {
+	       break;
+	   }
+	   pv(semid, READ, 1); //v operation read  释放资源  
+       }
+       kill(pid, SIGUSR1);
+    }
+
+_error2:
+    semctl(semid, 0, IPC_RMID);   //如果映射共享内存失败，删除创建的信号灯集
+_error1:
+    shmctl(shmid, IPC_RMID, NULL);//如果创建信号灯失败，则删除共享内存
+
+    return 0;
+}
+```
+     
+     
 
 - 9. 信号(signal) 
 
