@@ -1576,37 +1576,194 @@ int main()
 }
 ```
 
+  e) 信号集处理函数  
 
+```cpp
+    #include<signal.h>
+        int sigemptyset(sigset_t *set);   //清空信号集  
+        int sigfillset(sigset_t *set);    //填充信号集  
+        int sigaddset(sigset_t *set, int signo);  //添加某个信号到信号集  
+        int sigdelset(sigset_t *set, int signo);  //从集合中删除某个信号  
+        int sigismember(const sigset_t *set, int signo);  //是否为集合里的成员  
+	
+参数：  
+    set：    待处理的信号集的地址  
+    signo：  待处理的信号的编号  
+返回值：  
+    sigemptyset、sigfillset、sigaddset、sigdelset :成功返回 0，失败返回 -1  
+    sigismember：如果为真，则返回 1；如果为假则返回 0   
+    
+    #include<signal.h>   
+        int sigprocmask(int how, const sigset_t *restrict set, sigset_t *restrict oldset);  //检查、更改、或者同时检测更改进程的信号集  
+	
+参数：  
+    how:  如果set是非空指针，则它结合set一起指示了如何修改当前信号屏蔽字  
+          how=SIG_BLOCK：  该进程新的信号屏蔽字是其当前信号屏蔽字和set指向的信号集的并集。即set包含了希望阻塞的信号  
+          how=SIG_UNBLOCK：该进程新的信号屏蔽字是其当前信号屏蔽字和set指向的信号集补集的并集。即set包含了希望解除阻塞的附加信号  
+          how=SIG_SETMASK：该进程新的信号屏蔽字是set指向的值  
+    set:    如果set是非空指针，则它结合how一起指示了如何修改当前信号屏蔽字  
+    oldset: 如果是非空指针，则进程的当前信号屏蔽字通过它返回  
+返回值：    
+    成功：  返回 0  
+    失败：  返回 -1  
+    
+    #include<signal.h>
+        int sigpending(sigset_t *set);  //返回当前进程未决的信号集  
+	
+参数：  
+    set：  指向一个信号集的指针，该信号集存放当前进程的被阻塞的，而且未决的信号  
+返回值：  
+    成功：返回 0  
+    失败： 返回 -1  
 
+示例：
+int main()
+{
+    sigset_t pend, sigproc;  
+    
+    sigemptyset(&sigproc);  //先清空  
+    sigaddset(&sigproc, SIGINT);  
+    sigaddset(&sigproc, SIGQUIT);  
+    
+    sigprocmask(SIG_BLOCK, &sigproc, NULL);  //设置阻塞信号集  
+    //循环取未决信号集，打印  
+    while(1)  
+    {  
+        sigpending(&pend);  
+	int i = 1;  
+	for(i = 1; i < 32; i++)  
+	{
+	    if(sigismember(&pend, i) == 1){  
+	        printf("1");  
+	    }  
+	    else{ 
+	        printf("0");
+	    }
+	}
+	printf("\n");  
+	sleep(1);  
+    }  
+    return 0;   
+}
 
+//pause函数：阻塞调用进程直到捕捉到一个信号
+    #include <unistd.h>  
+        int pause(void);  
+	
+返回值：
+    一定是 -1， 且errno设置为EINTR  
+    
+只有执行了一个信号处理程序并且从其返回时，pause才返回。这种情况下pause返回 -1， errno设置为EINTR  
+```
 
+  f) 信号捕捉  
+  
+     作用：防止进程意外死亡  
+```cpp  
+    #include <signal.h>  
+        int sigaction(int signo, const struct sigaction *restrict act, struct sigaction*restrict oldact);  //取代了signal函数  
+    
+参数：    
+    signo：  指定处理的信号的编号  
+    act：    如果非NULL，则它指定的数据结构指定了对该信号执行的动作  
+    oact：   如果非NULL，则它指向的数据结构中返回该信号的上一个动作, 恢复现场    
+返回值：  
+    成功:  返回 0  
+    失败:  返回 -1  
+    
+信号捕捉特性：  
+    a) 进程正常运行时，默认PCB中有一个信号屏蔽字，假定为*，它决定了进程自动屏蔽哪些信号。当注册了某个信号捕捉函数，捕捉到该信号以后，要调用该函数。而该函数有可能执行很长时间，在这期间所屏蔽的信号不由*来指定。而是用sa_mask来指定。调用完信号处理函数，再恢复为*  
+    b) xxx信号捕捉函数执行期间，xxx信号自动被屏蔽  
+    c) 阻塞的常规信号不支持排队，产生多次只记录一次[后32个实时信号支持排队]  
+    
+示例：
+#include <stdio.h>  
+#include <unistd.h>  
+#include <signal.h>  
 
+void catch_sig(int num)
+{ 
+    printf("begin call, catch %d sig \n", num);  
+    sleep(5); //模拟捕捉函数执行时间较长  
+    printf("end call, catch %d sig \n", num);
+}
 
+int main()
+{
+    struct sigaction act;
+    act.sa_flags = 0;
+    sigemptyset(&act.sa_mask);
+    sigaddset(&act.sa_mask, SIGQUIT);  //临时屏蔽ctrl+\ 信号  
+    act.sa_handler = catch_sig;
+    
+    //注册捕捉  
+    sigaction(SIGINT, &act, NULL);  
+    
+    while(1)
+    {
+        printf("who can kill me \n");  
+	sleep(1);
+    }
+    return 0;
+}
+```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  g) 利用SIGCHLD回收子进程  
+  
+      子进程结束运行，其父进程会收到SIGCHID信号。该信号的默认处理动作是忽略，可以捕捉该信号，在捕捉函数中完成子进程状态的回收  
+      
+```cpp
+    #include <stdio.h>  
+    #include <unistd.h>  
+    #include <sys/wait.h>  
+    #include <signal.h>  
+ 
+ void catch_sig(int num)
+ {
+     pid_t wpid;
+     while( (wpid = waitpid(-1, NULL, WNOHANG)) > 0 ){
+         printf("wait child %d ok \n", wpid);
+     }
+ }
+ 
+ int main()
+ {
+     int i = 0;
+     pid_t pid;
+     
+     //在创建子进程之前屏蔽SIGCHLD信号  
+     sigset_t myset, oldset;  
+     sigemptyset(&myset);
+     sigaddset(&myset, SIGCHLD);  
+     //oldset 保留现场，设置了SIGCHLD到阻塞信号集  
+     sigprocmask(SIG_BLOCK, &myset, &oldset);
+     
+     for(i = 0; i<10; i++){
+         pid = fork();
+	 if(pid == 0){
+	     break;
+	 }
+     }
+     
+     if(i == 10){
+         //parent
+	 sleep(2); //模拟注册晚于子进程死亡  
+         struct sigaction act;
+	 act.sa_flags = 0;
+	 sigemptyset(&act.sa_mask);  
+	 act.sa_handler = catch_sig;
+	 
+	 sigaction(SIGCHLD, &act, NULL);
+	 
+	 //解除屏蔽现场  
+	 sigprocmask(SIG_SETMASK, &oldset, NULL);  
+	 while(1){
+	     sleep(1);
+	 }
+     }
+     else if(i < 10)
+     {
+         printf("i am %d child, pid = %d \n", i, getpid());
+     }
+ }
+```
