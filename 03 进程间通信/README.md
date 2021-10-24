@@ -1360,6 +1360,9 @@ _error1:
      
 - 9. 进程间通信总结         
 
+![image](https://user-images.githubusercontent.com/42632290/138578168-d9007035-45b5-49d5-bcca-83ab80b27cda.png)  
+![image](https://user-images.githubusercontent.com/42632290/138578180-6af40bcf-7b85-4885-9015-5e1134475720.png)  
+![image](https://user-images.githubusercontent.com/42632290/138578185-252e8f9e-42e2-460c-913a-843fe93ae981.png)  
 
 
 
@@ -1444,6 +1447,15 @@ kill有两种经典应用场景：
         - 这常用于确定一个特定的进程是否仍然存在。如果向一个并不存在的进程发送空信号，则kill返回 -1， errno设置为ESRCH  
         - 但是注意：UNIX系统每经过一定时间会重新使用销毁的进程的进程ID，所以可能存在某个给定进程ID的进程并不是你所期望的那个进程  
     如果调用kill为本进程产生信号，而且此信号是不被阻塞的，那么可以确保在kill返回之前，任何其他未决的、非阻塞信号（包括signo信号）都被递送到本进程  
+
+命令学习：  
+   a) kill [-signal] pid  
+         - 默认发送SIGTERM  
+	 - signal 可执行信号  
+	 - pid  指定发送对象  
+   b) killall [-u user | prog]  
+         - prog 指定进程名  
+	 - user 指定用户名  
 ```
 
     b) raise和abort函数 --- 函数向进程自己发送信号
@@ -1465,13 +1477,132 @@ kill有两种经典应用场景：
 ```
 
     c) alarm 函数  -- 为进程设置定时器
-    
-```cpp
+  
+  描述：alarm函数为进程设置一个定时器，在将来的seconds秒之后定时器超时。当定时器超时的时候，内核产生SIGALRM信号。该信号的默认动作是终止调用alarm函数的进程。  
+```cpp  
+    #include<unistd.h>  
+        unsigned int alarm(unsigned int seconds); 
 
+参数：
+    seconds：  定时器超时需要经过的秒数  
+    
+返回值：
+    0 或者以前设置的闹钟时间的剩余秒数  
+ 
+ 注意：
+    a) 由于进程调度的延迟，进程收到SIGALRM信号不是精确的seconds秒，而是要加上一个时间间隔  
+    b) 每个进程只能拥有一个定时器。如果在调用alarm的时候，之前已经为该进程设置了定时器且该定时器尚未超时，则该定时器距离超时的残留时间作为本次alarm函数调用的返回值返回  
+       - 如果seconds=0，则取消旧定时器，此时并没有新设定一个定时器，进程不再拥有任何定时器  
+       - 如果以seconds>0，则取消旧定时器，并设定新定时器（超时时间为seconds秒）  
 ```
 
 
-    d) settimer函数  --
+    d) settimer函数 -- 周期性的发送信号  
+
+```cpp
+    #int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value);
+    
+参数：  
+    which:    定时器类型  
+        - ITIMER_REAL    自然定时法SIGALRM  
+	- ITIMER_VIATUAL 计算进程执行时间SIGVTALRM  
+	- ITIMER_PROF    进程执行时间+调度时间ITIMER_VIRTUAL  
+    new_value: 要设置的闹钟时间  
+    odl_value: 原闹钟时间  
+               struct itimerval{  
+	           struct timeval it_interval;  //周期性的时间设置  
+		   struct timeval it_value;     //下次的闹钟时间  
+	       }
+	       struct timeval{  
+	           time_t tv_sec;  //秒
+		   suseconds_t tv_usec; //微妙  
+	       }
+示例1：
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/time.h>
+#include <signal.h>
+
+void catch_sig(int num)
+{
+    printf("cat %d sig \n", num);
+}
+
+int main()
+{
+    signal(SIGALRM, catch_sig);
+    struct itimerval myit = {{3, 0}, {5, 0}}; //第一次等待5s，之后每隔3s  
+    setitimer(ITIMER_REAL, &myit, NULL);
+    
+    while(1){
+        printf("who can kill me \n");
+	sleep(1);
+    }
+    
+    return 0;
+}
+
+//示例2：
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/time.h>
+
+unsigned int myalarm(unsigned int seconds)
+{
+    struct itimerval oldit, myit = {{0, 0}, {0, 0}};
+    myit.it_value.tv_sec = seconds;
+    setitimer(ITIMER_REAL, &myit, &oldit);  //second s后发送SIGALRM信号  
+    printf("tv_sec=%ld, tv_mirsec=%ld \n", oldit.it_value.tv_sec, oldit.it_value.tv_usec);
+    return oldit.it_value.tv_sec;
+}
+
+int main()
+{
+    int ret = 0;
+    ret = myalarm(5);
+    printf("ret = %d \n", ret);
+    sleep(3);
+    ret = myalarm(3);  
+    printf("ret = %d \n", ret);
+    
+    while(1){
+        printf("lai da wo \n");
+	sleep(1);
+    }
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
