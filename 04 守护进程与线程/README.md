@@ -447,17 +447,52 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate)  //默认
         - PTHREAD_CREAT_JOINABLE 允许回收  
 
 示例：
-    #include 
+    #include <stdio.h>
+    #include <unistd.h>
+    #include <pthread.h>
+    #include <string.h>
     
+    void *threadfunc(void *arg)
+    {
+        printf("i am a thread \n");
+        return NULL;
+    }
     
-    
+    int main()
+    {
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);  //初始化属性  
+        
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREAT_DETACHED); //设置属性  
+        
+        pthread_t tid;
+        pthread_creat(&tid, &attr, threadfunc, NULL);
+        int ret;
+        
+        if((ret = pthread_join(tid, NULL)) > 0){
+            printf("joint err:%d, %s\n", ret, strerror(ret));
+        }
+        
+        pthread_attr_destroy(&attr); //摧毁属性 
+        return 0;
+    }  
 ```
 
-**命令学习**：
+**命令学习**：  
     在家目录的.bashrc增加快捷键    
     alias echomake='cat ~/bin/makefile.template >> makefile'
     
     使用echomake命令，可以快速建立makefile文件，前提是自己已经写好了模板文件  
+
+**线程库使用注意事项:**  
+    a) 查看当前pthread库版本，getconf GNU_LIBPTHREAD_VEERSION  
+    b) 使用线程库时gcc指定 -lpthread
+    c) 主线程退出其他线程不退出，主线程应调用pthrea_exit
+    d) malloc和mmap申请的内存被其他线程释放  
+    e) 信号的复杂语义很难和多线程共存，应该避免再多线程引入信号机制  
+
+**创建多少个线程比较合适？**  
+    CPU核数*2 + 2
 
 
 > 线程同步  
