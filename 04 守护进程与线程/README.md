@@ -205,7 +205,260 @@
          - 信号屏蔽字  
          - 调度优先级  
          
-![Uploading image.png…]()
+![image](https://user-images.githubusercontent.com/42632290/139526148-792c706b-f94a-4381-9cb0-8c1786a3bbe2.png)
+
+  (5) 线程优缺点  
+      
+      a) 优点：提高程序并发性，开销小，数据通信、共享数据方便  
+      
+      b) 缺点：库函数，不稳定，调试、编写困难，对信号支持不好  
+
+      优点相对突出，缺点均不是硬伤，linux下由于实现方法导致进程，线程差别不是很大  
+
+  (6) 线程中打印错误信息  
+  
+      线程中使用 char *strerror(int errnum) 函数打印错误信息  
+      
+      线程中一般不使用perror()打印错误信息  
+      
+      为什么线程中不使用perror()? 需要待查
+
+
+  (7) 线程函数使用  
+ 
+ //1. 线程创建
+ 
+```cpp
+
+    #include <pthread.h>  
+        int pthread_creat(pthread_t *thread, const pthread_attr_t *attr, void *(*routine)(void *), void *arg);
+        
+参数：
+    thread:   线程对象id，传出参数    
+    attr:     线程属性，NULL代表默认属性  
+    routine:  线程执行的函数，void *func(void *)
+    arg:      传递给routine的参数  
+    
+返回值：
+    成功： 返回0
+    失败： 返回errno
+ 
+示例：
+    #include <unistd.h>
+    #include <pthread.h>
+    
+    void* threadfunc(void *arg)
+    {
+        printf("i am a thread! pid = %d, tid=%lu \n", getpid(), pthread_self());
+        return NULL;
+    }
+    
+    int main()
+    {
+        pthread_t pid;
+        pthread_creat(&tid, NULL, threadfunc, NULL);  
+        printf("i am main thread, pid=%d, tid=%lu \n", getpid(), pthread_self());
+        sleep(1);  //主控线程退出代表整个进程退出，其他线程自动退出，所以加延时，方便观察  
+        return 0;
+    } 
+```
+ 
+//2. 线程回收  
+
+```cpp
+    #include <pthread.h> 
+        int pthread_join(pthread_t pthread, void **retval); //阻塞直到thread结束  
+
+参数：
+    thread:   要回收的线程对象  
+    *retval： 接收线程thread的返回值  
+
+返回值：
+    成功： 返回0
+    失败： 返回错误码
+
+示例：
+    #include <unistd.h>
+    #include <pthread.h> 
+    
+    void *threadfunc(void *arg)
+    {
+        printf("i am a thread, tid=%lu \n", pthread_self());
+        sleep(5);
+        printf("i am a thread, tid=%lu \n", pthread_self());
+        return (void*)100;
+    }
+    
+    int main()
+    {
+        pthread_t tid;
+        pthread_creat(&tid, NULL, threadfunc, NULL);  
+        void *ret;
+        pthread_join(tid, &ret); //线程回收  
+        
+        printf("ret exit with %d \n", (int)ret);
+        
+        pthread_exit(NULL);
+    }
+```
+
+//3. 线程结束 
+
+```cpp
+    #include <pthread.h> 
+        void pthread_exit(void *retval);  //结束后私有资源被释放  
+        
+参数：
+    retval: 线程结束的返回值   
+    
+注意事项：
+    a) 在线程中使用pthread_exit,代表线程退出
+    b) 在线程中使用return，代表线程退出 [主控线程return代表退出进程]  
+    c) exit代表退出整个进程 [exit不要使用在线程中]  
+```
+
+//4. 杀死线程  
+
+```cpp
+    #include <pthread.h>
+        int pthread_cancel(pthread_t thread)  
+        
+参数：
+    thread:  要杀掉的线程对象id
+    
+返回值：
+    成功：  返回0
+    失败：  返回errno
+
+注意：
+    被pthread_cancel杀死的线程，退出状态为PTHREAD_CANCELED
+    #define PTHREAD_CANCELED((void *)-1)
+    
+示例：
+    #include <stdio.h>
+    #include <unistd.h>
+    #include <pthread.h>
+    
+    void *threadfunc(void *arg)
+    {
+        while(1){
+            printff("i am a thread, tid= %lu \n", pthread_self());
+            sleep(1);
+        }
+        return NULL;
+    }
+    
+    int main()
+    {
+        pthread_t tid;
+        pthread_creat(&tid, NULL, threadfunc, NULL);
+        
+        sleep(5);
+        pthread_cancel(tid); //杀死线程  
+        void * ret;
+        pthread_join(tid, &ret);
+        printf("thread exit with %d \n", (int)ret);
+        return 0;
+    }
+ 
+```
+
+//5. 线程分离  
+
+    线程分离状态：指定该状态，线程主动与主动线程断开关系，线程结束后，其退出状态不由其他线程获取，而直接自己自动释放。网络，多线程服务器常用  
+    一般情况下，线程终止后，其终止状态一直保留到其它线程调用pthread_join获取它的状态为止。但是线程也可以被设置为detach状态，这样的线程一旦终止就立刻回收它占用的所有资源，而不保留终止状态。不能对一个已经处于detach状态的线程调用pthread_join,这样的调用将返回EINVAL错误。也就是说，如果已经对一个线程调用了pthread_detach就不能再调用pthread_join了  
+```cpp
+    #include <pthread.h>
+        int pthread_detach(pthread_t thread);
+        
+参数：
+    pthread_t:  要传入的线程对象id  
+    
+返回值：
+    成功：  返回0
+    失败：  返回错误号  
+
+示例：
+   #include <stdio.h>
+   #include <unistd.h>
+   #include <pthread.h>
+   #include <string.h>
+
+   void *threadfunc(void *arg)
+   {
+       printf("i am a thread, tid=%lu \n", pthread_self());
+       sleep(4);
+       printf("i am a thread, tid=%lu \n", pthread_self());
+       return NULL;
+   }
+   
+   int main()
+   {
+       pthread_t tid;
+       pthread_creat(&tid, NULL, threadfunc, NULL);
+       
+       pthread_detach(tid); //线程分离  
+       sleep(5);
+       
+       int ret = 0;
+       if((ret=pthread_join(tid, NULL)) > 0)  //会出错
+       {
+           printf("join err:%d, %s \n", ret, strerror(ret));
+       }
+       
+       return 0;
+   }
+   
+扩展：
+    比较两个线程id是否相等
+    int pthread_equal(pthread_t t1, pthread_t t2);
+
+```
+
+//6. 线程属性设置分离  
+
+    线程的分离状态决定一个线程以什么样的方式来终止自己  
+    
+    非分离状态：线程的默认属性是非分离状态，这种情况下，原有的线程等待创建的线程结束。只有当pthread_join函数返回时，创建的线程才算终止，才能释放自己占用的系统资源  
+    分离状态：分离线程没有被其他的线程所等待，自己运行结束了，线程也就终止了，马上释放系统资源。应该根据自己的需要，选择适当的分离状态   
+    
+    线程分离状态的函数：  
+    设置线程属性，分离或非分离  
+      int pthread_attr_setdetachstate(pthreadd_attr_t *attr, int detachstate);  
+      
+    获取线程属性，分离或非分离  
+      int pthread_attr_getdetachstate(pthread_attr_t *attr, int *detachstate);
+
+```cpp
+
+//初始化线程属性  
+int pthread_attr_init(pthread_attr_t *attr);
+
+//销毁线程属性  
+int pthread_attr_destroy(pthread_attr_t *attr);
+
+//设置属性分离态  
+int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate)  //默认允许回收  
+
+参数：
+    attr：  init初始化属性  
+    detachstate: 
+        - PTHREAD_CREAT_DETACHED 线程分离  
+        - PTHREAD_CREAT_JOINABLE 允许回收  
+
+示例：
+    #include 
+    
+    
+    
+```
+
+**命令学习**：
+    在家目录的.bashrc增加快捷键    
+    alias echomake='cat ~/bin/makefile.template >> makefile'
+    
+    使用echomake命令，可以快速建立makefile文件，前提是自己已经写好了模板文件  
+
 
 > 线程同步  
 
