@@ -6,6 +6,8 @@
 
 - 1. 互斥锁  
 
+![image](https://user-images.githubusercontent.com/42632290/139572827-179d977a-88b2-472c-8347-733543bf0ee4.png)
+
     (1) 互斥量使用步骤：
     
           - 初始化  
