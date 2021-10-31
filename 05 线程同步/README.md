@@ -214,9 +214,14 @@
     
 这两个函数被调用时：
     如果允许加锁，那么函数将对读写锁加锁并返回0
-    如果不允许加锁，那么函数将阻塞到tsptr指定的时刻。在到达超时时刻时，pthread_mutex_timedlock不再试图对读写锁进行加锁，而是返回错误码ETIMEOUT  
-    
-可以使用clock_gettime函数获取timespec结构表示的当前时间。但是目前并不是所有平台都支持这个函数。因此也可以用gettimeofday函数获取timeval结构表示的当前时间，然后将这个时间转换为timespec结构  
+    如果不允许加锁，那么函数将阻塞到tsptr指定的时刻。在到达超时时刻时，pthread_mutex_timedlock不再试图对读写锁进行加锁，而是返回错误码ETIMEOUT    
+    可以使用clock_gettime函数获取timespec结构表示的当前时间。但是目前并不是所有平台都支持这个函数。因此也可以用gettimeofday函数获取timeval结构表示的当前时间，然后将这个时间转换为timespec结构  
+  
+注意：  
+    使用读写锁之前必须初始化：  
+        如果是动态分配的读写锁（如通过malloc函数），则必须调用pthread_rwlock_init 函数进行初始化  
+        如果是静态分配的读写锁，那么除了调用pthread_rwlock_init函数来初始化，也可以将它设置为常量PTHREAD_RWLOCK_INITALIZER来初始化  
+        如果是动态分配的读写锁，那么在free释放内存之前必须调用pthread_rwlock_destroy函数来销毁读写锁。该函数会释放在动态初始化读写锁时动态分配的资源  
 ```
 
     示例：  
