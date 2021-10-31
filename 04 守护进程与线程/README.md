@@ -493,22 +493,3 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate)  //默认
 
 **创建多少个线程比较合适？**  
     CPU核数*2 + 2
-
-
-> 线程同步  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
