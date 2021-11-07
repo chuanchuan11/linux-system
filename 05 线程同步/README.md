@@ -424,13 +424,120 @@
 
 ```
 
-- 5. 信号量 
+- 5. posix信号量 
 
+    进化版的互斥锁(1->N)  
+    
+    由于互斥锁的粒度比较大，如果我们希望在多个线程间对某一对象的部分数据进行共享，使用互斥锁是没办法实现的，只能将整个数据对象锁住。这样虽然达到了多线程操作共享数据时保证数据正确性的目的，却无形中导致线程的并发性下降。线程从并行执行，变成了串行执行。与直接使用单进程无异。[即同时允许几个线程访问共享数据]  
+    
+    信号量，是相对折中的一种处理方式，既能保证同步，数据不混乱，又能提高线程并发。 允许多线程访问共享资源  
+  
+    posix中定义了两类信号量：无名信号量[基于内存的信号量]和有名信号量，无名信号量一般用于线程之间的同步，有名信号量用于进程和线程都可以  
+  
+   (1) 信号量基本操作  
+      
+       sem_wait:   信号量大于0，则信号量--；信号量等于0，造成线程阻塞  
+       sem_post:   将信号量++，同时唤醒阻塞在信号量上的线程  
+  
+  
+```cpp
+    #include <semaphore.h>
+        int sem_init(sem_t *sem, int pshared, unsigned int value);
+        int sem_destroy(sem_t *sem);
 
+参数：
+    sem:      要初始化/销毁的信号量    
+    pshared:  0用于线程间，1用于进程间  
+    value:    指定信号量的个数，规定sem不能<0
+              信号量的初值，决定了占用信号量的线程的个数  
+    
+返回值：
+    成功：  返回0  
+    失败：  返回-1，同时设置errno  
 
+    #include <semaphore.h>
+        int sem_wait(sem_t *sem);      //v操作给信号量加锁--  
+        int sem_trywait(sem_t *sem);   //尝试对信号量加锁--
+        int sem_timedwait(sem_t *sem, const struct timespec *abs_timeout);  //限时对信号量加锁--  
 
+参数：
+    sem:      要操作的信号量    
+    
+返回值：
+    成功：  返回0  
+    失败：  返回-1，同时设置errno  
 
+    #include <semaphore.h>  
+        int post(sem_t *sem)  //p操作给信号量解锁++  
 
+参数：
+    sem:      要操作的信号量    
+    
+返回值：
+    成功：  返回0  
+    失败：  返回-1，同时设置errno  
+
+```
+
+    信号量实现生产者和消费者模型：  
+    
+```cpp
+  #include <stdio.h>  
+  #include <unistd.h>  
+  #include <pthread.h>  
+  #include <stdlib.h>  
+  #include <semaphore.h>  
+
+  sem_t blank, xfull;
+  #define _SEM_CNT_ 5
+  
+  int queue[_SEM_CNT_];  //模拟饼框  
+  int beginnum = 100;
+  
+  void *thr_producter(void *arg)
+  {
+      int i = 0;
+      while(1){
+          sem_wait(&blank); //申请资源blank  
+          printf("----%s-----self=%lu----%d \n", __FUNCTION__, pthread_self(), beginnum);
+          queue[(i=++)%_SEM_CNT_] = beginnum++;
+          sem_post(&xfull);  --
+          sleep(rand()%3);
+      }
+      return NULL;
+  }
+  
+  void *thr_producter(void *arg)
+  {
+      int i = 0;
+      int num = 0;
+      while(1){
+          sem_wait(&xfull); 
+          num = queue[(i=++)%_SEM_CNT_];  
+          printf("----%s-----self=%lu----%d \n", __FUNCTION__, pthread_self(), num);
+          sem_post(&blank);   ++
+          sleep(rand()%3);
+      }
+      return NULL;
+  }
+
+  int main()
+  {
+      sem_init(&blank, 0, _SEM_CNT_); 
+      sem_init(&xfull, 0, 0);   //消费者一开始初始化默认没有产品  
+      
+      pthread_t tid[2];
+      pthread_creat(&tid[0], NULL, thr_producter, NULL);  
+      pthread_creat(&tid[1], NULL, thr_customer, NULL);
+      
+      pthread_join(tid[0], NULL);
+      pthread_join(tid[1], NULL);
+      sem_destroy(&blank);
+      sem_destroy(&xfull);
+  }
+```
+
+- 6. 进程间同步   
 
 
 
