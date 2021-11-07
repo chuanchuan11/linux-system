@@ -539,19 +539,69 @@
 
 - 6. 进程间同步   
 
+    a) 互斥量  
+    
+        进程间也可以使用互斥锁，来达到同步的目的。但应在pthread_mutex_init初始化之前，修改其属性为进程间共享。mutex的属性修改函数主要有以下几个：
+        
+```cpp
+    pthread_mutexattr_t mattr; //用于定义mutex锁的属性  
+    pthread_mutexattr_init(pthread_mutexattr_t *attr);    //初始化一个mutex属性对象  
+    pthread_mutexattr_destroy(pthread_mutexattr_t *attr); //销毁mutex属性对象，而非销毁锁  
+    pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared); 
+          pshared:  PTHREAD_PROCESS_PRIVATE[mutex的默认属性值即为线程锁]  
+                    PTHREAD_PROCESS_SHARED [用于进程间互斥]
+```
 
+    b) 文件锁  
 
+    借助fcntl函数来实现锁机制。操作文件的进程没有获得锁时，可以打开，但无法执行read和write操作  
+    
+    fcntl函数：获取、设置文件访问控制属性    
+        int fcntl(int fd, int cmd, .../*arg*/);    
+    
+    参数2：  
+        F_SETK(struct flock *);  设置文件锁[trylock]  
+        F_SETLKW(struct flock *);设置文件锁[lock]   
+        F_GETLK(struct flock *); 获取文件锁  
+    参数3：  
+        struct flock{  
+            ...  
+            short l_type;   锁的类型：F_RDLCK、F_WRLCK、F_UNLCK  
+            short l_whence; 偏移位置：SEEK_SET、SEEK_CUR、SEEK_END
+            off_t l_start;  起始位置：1000
+            off_t l_len;    长度：0表示整个文件加锁
+            pid_t l_pid;    持有该锁的进程ID：F_GETLK only
+        }  
 
-
-
-
-
-
-
-
-
-
-
-
-
+```cpp
+    #include <sys/stat.h>  
+    #include <fcntl.h>  
+    #include <stdlib.h>  
+    
+    #define _FILE_NAME_ "/home/itheima/temp.lock"
+    
+    int main()
+    {
+        int fd = open(_FILE_NAME_， O_RDWR|O_CREAT, 0666);
+        
+        struct flock lk;
+        lk.l_type = F_WRLCK;
+        lk.l_whence = SEEK_SET;
+        lk.l_start = 0;
+        lk.l_len = 0;
+        
+        if(fcntl(fd, F_SETLK, &lk) < 0)
+        {
+            perror("get lock err");
+            exit(1);
+        }
+        
+        while(1){
+            printf("i am alive \n");
+            sleep(1);
+        }
+        
+        return 0;
+    }
+```
 
