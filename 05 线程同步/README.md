@@ -2,9 +2,12 @@
 
     线程间通信，线程共享同一进程的地址空间，优点是线程间通信很容易，通过全局变量交换数据，缺点是多个线程访问共享数据时需要同步或互斥机制  
     
-    线程同步指一个线程发出某一功能调用时，在没有得到结果之前，该调用不返回。同时其它线程为保证数据一致性，不能调用该功能  
+    线程同步指的是多个任务按照约定的先后次序相互配合完成一件事情  
 
 - 1. 互斥锁  
+
+    临界资源：  一次只允许一个进程或线程访问的共享资源  
+    互斥机制： 任务访问临界资源前申请锁，访问完后释放锁  
 
 ![image](https://user-images.githubusercontent.com/42632290/139572827-179d977a-88b2-472c-8347-733543bf0ee4.png)
 
@@ -275,7 +278,170 @@
 
 - 4. 条件变量  
 
-    条件变量是不同于锁的另一种同步机制   
+    条件变量是不同于锁的另一种同步机制，相较于mutex而言，条件变量可以减少竞争  
+    
+    如果直接使用mutex，除了生产者/消费者之间要竞争互斥量以外，消费者之间也需要竞争互斥量，但如果汇聚中没有数据，消费者之间竞争互斥锁是无意义的。有了条件变量机制后，只有生产者完成生产，才会引起消费者之间的竞争，提高了程序效率。  
+    
+    条件变量不是锁，要和互斥量组合使用，条件变量与互斥量一起使用时，允许线程以无竞争的方式等待指定的条件发生  
+
+```cpp  
+    #include<pthread.h>  
+      int pthread_cond_init(pthread_cond_t *restrict cond, const pthread_condattr_t *restrict attr);  //初始化
+      int pthread_cond_destroy(pthread_cond_t *cond);  //退出初始化  
+      
+参数：
+    cond：  待初始化/销毁的条件变量的地址
+    attr：  条件变量的属性。如果为NULL，那么条件变量设置为默认属性  
+返回值：
+    成功：  返回0
+    失败：   返回错误编号      
+  
+注意：
+    使用条件变量之前必须初始化  
+      a) 如果是动态分配的条件变量（如通过malloc函数），则必须调用pthread_cond_init函数进行初始化  
+      b) 如果是静态分配的条件变量，那么除了调用pthread_cond_init函数来初始化，也可以将它设置为常量PTHREAD_COND_INITALIZER来初始化  
+      c) 如果是动态分配的条件变量，那么在free释放内存之前必须调用pthread_cond_destroy函数来销毁条件变量。该函数会释放在动态初始化条件变量时动态分配的资源  
+      
+      
+    #include<pthread.h>
+    #include<time.h>
+        int pthread_cond_wait(pthread_cond_t *restrict cond, pthread_mutext_t *restrict mutex);    //等待指定的条件成立；如果指定的条件不成立，则线程阻塞  
+        int pthread_cond_timedwait(pthread_cond_t *restrict cond, pthread_mutext_t *restrict mutex, const struct timespect*restrict tsptr);  //指定一个超时时刻。如果在超时时刻到来时，指定条件仍然不满足，则函数返回错误码ETIMEOUT  
+        
+参数：
+    cond：  要等待的条件变量的地址  
+    mutex： 与条件变量配套的互斥量的地址  
+    tsptr： 指向一个timespec的指针，该timepsec指定了一个绝对时间（并不是相对时间，比如10秒）  
+返回值：
+    成功： 返回0  
+    失败： 返回错误编号  
+    
+注意：  
+    a) 互斥量mutex用于对条件变量cond进行保护。调用者在调用pthread_cond_wait/pthread_cond_timedwait函数之前，必须首先对mutex加锁（即mutex此时必须是处于已锁定状态） 
+    
+    b) pthread_cond_wait/pthread_cond_timedwait会计算指定的条件是否成立，如果不成立则会自动把调用线程放到等待条件的线程列表中并阻塞线程，然后对互斥量mutex进行解锁【条件成立是否指condition先被触发？，做测试callback先触发】 
+【之所以mutex必须是已锁定状态，就是因为这里有“计算条件然后如果不满足条件就把进程投入休眠”的操作。这两步并不是原子的，所以需要利用条件变量保护起来】  
+
+    c) 当从pthread_cond_wait/pthread_cond_timedwait函数返回时，返回之前互斥量mutex再次被锁住 
+    
+    d) pthread_cond_timedwait被调用时：
+        如果指定条件成立，那么函数返回0
+        如果指定条件不成立，那么函数将阻塞到tsptr指定的时刻。在到达超时时刻时，pthread_mutex_timedlock返回错误码ETIMEOUT
+        【可以使用clock_gettime函数获取timespec结构表示的当前时间。但是目前并不是所有平台都支持这个函数。因此也可以用gettimeofday函数获取timeval结构表示的当前时间，然后将这个时间转换为timespec结构】思考：是否都为单调时间，是否会收到系统时间改变的影响，代码可以测试？【默认为绝对时间等待，当系统时间被修改时，等待函数会受到影响，可以使用pthread_condaddr_setclock(&cond.cattr, CLOCK_MONOTONIC)设置属性为相对时间，避免该问题】  
+     
+     e) 使用时候注意设置的纳秒级超时时间，与绝对时间基相加后超出秒级的时间，导致永远无法超时的情况[当纳秒级时间超出1s应进位到s级时间上，ns级单位永远不要超过1s]  
+        
+    #include<pthread.h>  
+        int pthread_cond_signal(pthread_cond_t *cond);    //唤醒一个等待cond条件发生的线程  
+        int pthread_cond_broadcast(pthread_cond_t *cond); //唤醒等待cond条件发生的所有线程  
+        
+参数：
+    cond：该指针指向的条件变量状态变为：条件成立  
+    
+返回值：  
+    成功： 返回0  
+    失败： 返回错误编号  
+```
+
+    (经典)生产消费者模型示例：生产者产生数据，消费者获取数据  
+          
+          让消费者阻塞在条件变量上，而不是争抢锁上边[如果阻塞在锁上，不管是否有数据都会发生竞争，当没有数据时，退出后继续竞争]，阻塞在条件变量上则直接等待，直到被生产者唤醒再去竞争锁  
+
+```cpp 
+  #include <stdio.h>  
+  #include <unistd.h>  
+  #include <pthread.h>  
+  #include <stdlib.h>  
+  
+  pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+  pthread_cond_t cond = PTHREAD_COND_INITIALZER;
+
+  int beginnum = 1000;
+
+  typedef struct _Proinfo{
+      int num;
+      struct _Prodinfo *next;
+  }ProdInfo;
+
+  ProdIndo * Head = NULL;
+
+  void *thr_producter(void * arg)
+  {
+      //负责在链表添加数据  
+      while(1){
+          ProdInfo *prod = malloc(sizeof(ProdInfo));
+          prod->num = beginnum++;
+          printf("----%s-----self=%lu----%d \n", __FUNCTION__, pthread_self(), prod->num);
+          pthread_mutex_lock(&mutex);
+          //add to list
+          prod->next = Head;
+          Head = prod;
+          pthread_mutex_unlock(&mutex);
+          //发起通知  
+          pthread_cond_signal(&cond);
+          sleep(rand()%2);
+      }
+      return NULL;
+  }
+  
+  void *thr_customer(void * arg)
+  {
+      ProdInfo *prod = NULL;
+      while(1){
+           //负责取链表数据 
+          pthread_mutex_lock(&mutex);
+          while(Head == NULL){  
+              pthread_cond_wait(&cond, &mutex);  //在此之前必须先枷锁  
+          }
+          prod = Head;
+          Head = Head->next;
+          printf("----%s-----self=%lu----%d \n", __FUNCTION__, pthread_self(), prod->num);
+          pthread_mutex_unlock(&mutex);
+          sleep(rand()%4);
+          free(prod);
+          
+      }
+      return NULL;
+  }
+  
+  int main()
+  {
+      pthread_t tid[3];  
+      pthread_creat(&tid[0], NULL, thr_producter, NULL);  
+      pthread_creat(&tid[1], NULL, thr_customer, NULL);
+      pthread_creat(&tid[2], NULL, thr_customer, NULL);  
+      
+      pthread_join(tid[0], NULL);
+      pthread_join(tid[1], NULL);
+      pthread_join(tid[2], NULL);
+      pthread_mutex_destroy(&mutex);  
+      pthread_cond_destroy(&cond); 
+  }
+  
+思考：当生产者比较多时候？
+      当消费者比较多时候？
+      多个消费者都被唤醒只有一个取到数据，其他消费者什么逻辑？
+
+```
+
+- 5. 信号量 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
