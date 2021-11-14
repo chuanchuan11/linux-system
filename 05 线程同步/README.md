@@ -539,6 +539,16 @@
 
 - 6. 进程间同步   
 
+    **建议锁、强制锁、记录锁**
+    > 建议锁  
+       如果某一个进程对一个文件持有一把锁之后，其他进程仍然可以直接对文件进行操作(open, read, write)而不会被系统禁止，即使这个进程没有持有锁。只是一种编程上的约定。建议锁只对遵守建议锁准则的进程生效(程序在操作前应该自觉的检查所的状态之后才能进行后续操作)  
+       
+    > 强制锁  
+       试图实现一套内核级的锁操作。当有进程对某个文件上锁之后，其他进程会在open、read或write等文件操作时发生错误  
+       
+    > 记录锁  
+       只对文件中自己所关心的那一部分加锁。记录锁是更细粒度的文件锁。记录锁存在于文件结构体中，并不与文件描述符相关联，会在进程退出时候被释放掉  
+
     a) 互斥量  
     
         进程间也可以使用互斥锁，来达到同步的目的。但应在pthread_mutex_init初始化之前，修改其属性为进程间共享。mutex的属性修改函数主要有以下几个：
@@ -554,26 +564,63 @@
 
     b) 文件锁  
 
+   **fcntl()、lockf、flock的区别:**
+
+        这三个函数的作用都是给文件加锁，那它们有什么区别呢？首先flock和fcntl是系统调用，而lockf是库函数。lockf实际上是fcntl的封装，所以lockf和fcntl的底层实现是一样的，对文件加锁的效果也是一样的。后面分析不同点时大多数情况是将fcntl和lockf放在一起的。下面首先看每个函数的使用，从使用的方式和效果来看各个函数的区别  
+
+
+     - flock 函数  
+     
+```cpp  
+       #include <sys/file.h>
+           int flock(int fd, int operation);  // 建议性锁  
+
+参数：  
+    fd：  是系统调用open返回的文件描述符  
+    operation的选项有：
+                     LOCK_SH ：共享锁  
+                     LOCK_EX ：排他锁或者独占锁  
+                     LOCK_UN : 解锁  
+                     LOCK_NB：非阻塞（与以上三种操作一起使用）  
+注意：
+    1) flock函数只能对整个文件上锁，而不能对文件的某一部分上锁，这是于fcntl/lockf的第一个重要区别，后者可以对文件的某个区域上锁  
+    2) flock只能产生劝告性锁。我们知道，linux存在强制锁（mandatory lock）和劝告锁（advisory lock）
+    3) flock不能在NFS文件系统上使用，如果要在NFS使用文件锁，请使用fcntl。
+    4) flock锁可递归，即通过dup或者或者fork产生的两个fd，都可以加锁而不会产生死锁。也就是说持有flock锁的进程还可以再次上锁而不会引起死锁  
+       flock创建的锁是和文件描述符相关联的。这就意味着复制文件fd（通过fork或者dup）后，那么通过这两个fd都可以操作这把锁（例如通过一个fd加锁，通过另一个fd可以释放锁），也就是说子进程继承父进程的锁。但是上锁过程中关闭其中一个fd，锁并不会释放（因为file结构并没有释放），只有关闭所有复制出的fd，锁才会释放。
+
+示例：
+    参考： https://www.cnblogs.com/sinpo828/p/10678944.html
+
+```
+
+    - fcntl函数  
+
+``cpp
+
     借助fcntl函数来实现锁机制。操作文件的进程没有获得锁时，可以打开，但无法执行read和write操作  
+    #include <unistd.h>
+    #include <fcntl.h>   
+        int fcntl(int fd, int cmd, .../*arg*/);  //fcntl函数：获取、设置文件访问控制属性  
     
-    fcntl函数：获取、设置文件访问控制属性    
-        int fcntl(int fd, int cmd, .../*arg*/);    
-    
-    参数2：  
-        F_SETK(struct flock *);  设置文件锁[trylock]  
-        F_SETLKW(struct flock *);设置文件锁[lock]   
-        F_GETLK(struct flock *); 获取文件锁  
-    参数3：  
+参数2：  
+        F_SETK(struct flock *);  设置文件锁[trylock], 不能获得锁直接返回失败  
+        F_SETLKW(struct flock *);设置文件锁[lock]， 等待直到获得锁     
+        F_GETLK(struct flock *); 获取文件锁的相关信息  
+参数3：  
         struct flock{  
             ...  
             short l_type;   锁的类型：F_RDLCK、F_WRLCK、F_UNLCK  
             short l_whence; 偏移位置：SEEK_SET、SEEK_CUR、SEEK_END
-            off_t l_start;  起始位置：1000
-            off_t l_len;    长度：0表示整个文件加锁
+            off_t l_start;  锁的起始位置
+            off_t l_len;    锁占的长度byte：0表示整个文件加锁
             pid_t l_pid;    持有该锁的进程ID：F_GETLK only
-        }  
+        } 
 
-```cpp
+注意：  
+    通过函数参数功能可以看出 fcntl 是功能最强大的，它既支持共享锁又支持排他锁，即可以锁住整个文件，又能只锁文件的某一部分（记录锁）   
+
+示例：  
     #include <sys/stat.h>  
     #include <fcntl.h>  
     #include <stdlib.h>  
@@ -604,4 +651,74 @@
         return 0;
     }
 ```
+
+    - lockf函数
+    
+```cpp
+    #include <unistd.h>
+        int lockf(int fd, int cmd, off_t len);  //通过函数参数的功能，可以看出lockf只支持排他锁，不支持共享锁。
+
+参数：  
+    fd：通过open返回的打开文件描述符  
+    cmd：  
+        F_LOCK：给文件互斥加锁，若文件以被加锁，则会一直阻塞到锁被释放。
+        F_TLOCK：同F_LOCK，但若文件已被加锁，不会阻塞，而回返回错误。
+        F_ULOCK：解锁。
+        F_TEST：测试文件是否被上锁，若文件没被上锁则返回0，否则返回-1。
+    len：为从文件当前位置的起始要锁住的长度。
+
+```
+
+   **fcntl/lockf的特性：**  
+   a) 上锁可递归，如果一个进程对一个文件区间已经有一把锁，后来进程又企图在同一区间再加一把锁，则新锁将替换老锁  
+   b) 进程不能使用F_GETLK命令来测试它自己是否再文件的某一部分持有一把锁。F_GETLK命令定义说明，返回信息指示是否现存的锁阻止调用进程设置它自己的锁。因为，F_SETLK和F_SETLKW命令总是替换进程的现有锁，所以调用进程绝不会阻塞再自己持有的锁上，于是F_GETLK命令绝不会报告调用进程自己持有的锁  
+   c) 进程终止时，他所建立的所有文件锁都会被释放，对于flock也是一样的。 
+   d) 任何时候关闭一个描述符时，则该进程通过这一描述符可以引用的文件上的任何一把锁都被释放（这些锁都是该进程设置的），这一点与flock不同   
+   
+   **fcntl/lockf的关系:**  
+    那么flock和lockf/fcntl所上的锁有什么关系呢？答案是互不影响。测试程序如下：  
+   
+ ```cpp
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/file.h>
+    int main(int argc, char **argv)
+    {
+        int fd, ret;
+        int pid;
+        fd = open("./tmp.txt", O_RDWR);
+        ret = flock(fd, LOCK_EX);
+        printf("flock return ret : %d\n", ret);
+        ret = lockf(fd, F_LOCK, 0);
+        printf("lockf return ret: %d\n", ret);
+        sleep(100);
+        return 0;
+    }
+    
+测试结果如下：
+    $./a.out
+    flock return ret : 0
+    lockf return ret: 0  
+    
+可见flock的加锁，并不影响lockf的加锁。两外我们可以通过/proc/locks查看进程获取锁的状态。
+
+    $ps -aux | grep a.out | grep -v grep 18849
+    123751   18849  0.0  0.0  11904   440 pts/5    S+   01:09   0:00 ./a.out
+
+    $sudo cat /proc/locks | grep 18849
+    1: POSIX  ADVISORY  WRITE 18849 08:02:852674 0 EOF
+    2: FLOCK  ADVISORY  WRITE 18849 08:02:852674 0 EOF
+    
+我们可以看到/proc/locks下面有锁的信息：我现在分别叙述下含义：
+
+    POSIX FLOCK 这个比较明确，就是哪个类型的锁。flock系统调用产生的是FLOCK，fcntl调用F_SETLK，F_SETLKW或者lockf产生的是POSIX类型，有次可见两种调用产生的锁的类型是不同的；
+    ADVISORY表明是劝告锁；
+    WRITE顾名思义，是写锁，还有读锁；
+    18849是持有锁的进程ID。当然对于flock这种类型的锁，会出现进程已经退出的状况。
+    08:02:852674表示的对应磁盘文件的所在设备的主设备好，次设备号，还有文件对应的inode number。
+    0表示的是锁的起始位置
+    EOF表示的是结束位置。 这两个字段对fcntl类型比较有用，对flock来是总是0 和EOF。
+ ```
+
 
