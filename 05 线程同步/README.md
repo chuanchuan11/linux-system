@@ -596,7 +596,7 @@
 ```  
 
   - fcntl函数  
-
+  
 ``cpp
 
     借助fcntl函数来实现锁机制。操作文件的进程没有获得锁时，可以打开，但无法执行read和write操作  
@@ -652,9 +652,9 @@
         return 0;
     }
 ```  
-
+  
   - lockf函数  
-
+  
 ```cpp
     #include <unistd.h>
         int lockf(int fd, int cmd, off_t len);  //通过函数参数的功能，可以看出lockf只支持排他锁，不支持共享锁。
