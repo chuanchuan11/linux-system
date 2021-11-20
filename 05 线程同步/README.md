@@ -555,12 +555,28 @@
         进程间也可以使用互斥锁，来达到同步的目的。但应在pthread_mutex_init初始化之前，修改其属性为进程间共享。mutex的属性修改函数主要有以下几个：
         
 ```cpp
-    pthread_mutexattr_t mattr; //用于定义mutex锁的属性  
-    pthread_mutexattr_init(pthread_mutexattr_t *attr);    //初始化一个mutex属性对象  
-    pthread_mutexattr_destroy(pthread_mutexattr_t *attr); //销毁mutex属性对象，而非销毁锁  
-    pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared); 
-          pshared:  PTHREAD_PROCESS_PRIVATE[mutex的默认属性值即为线程锁]  
-                    PTHREAD_PROCESS_SHARED [用于进程间互斥]
+    #include <pthread.h>
+        pthread_mutexattr_t mattr; //用于定义mutex锁的属性  
+        pthread_mutexattr_init(pthread_mutexattr_t *attr);    //初始化一个mutex属性对象  
+        pthread_mutexattr_destroy(pthread_mutexattr_t *attr); //销毁mutex属性对象，而非销毁锁  
+        pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared); 
+                                        pshared:  PTHREAD_PROCESS_PRIVATE[mutex的默认属性值即为线程锁]  
+                                                  PTHREAD_PROCESS_SHARED [用于进程间互斥]
+        
+        pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust);
+pthread_mutexattr_setrobust介绍
+注意：
+    互斥量健壮性和多个进程间共享的互斥量有关。这意味着，当持有互斥量的进程终止时，锁还没有释放，这就需要解决互斥量状态恢复的问题。
+    这种情况发生时，由于互斥量处于锁定状态，恢复起来很困难。其他阻塞在这个锁的进程将会一直阻塞下去。
+    但是情况也不仅仅局限于多进程的情况，在多线程中，如果忘记了释放锁，也会导致其他线程阻塞。
+    可以使用pthread_mutexattr_getrobust函数获取健壮的互斥量属性的值。可以用pthread_mutexattr_setrobust函数设置健壮的互斥量属性的值。
+
+
+        
+        
+        
+        
+        
 ```
 
     b) 文件锁  
