@@ -562,22 +562,55 @@
         pthread_mutexattr_setpshared(pthread_mutexattr_t *attr, int pshared); 
                                         pshared:  PTHREAD_PROCESS_PRIVATE[mutex的默认属性值即为线程锁]  
                                                   PTHREAD_PROCESS_SHARED [用于进程间互斥]
-        
-        pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust);
-pthread_mutexattr_setrobust介绍
-注意：
-    互斥量健壮性和多个进程间共享的互斥量有关。这意味着，当持有互斥量的进程终止时，锁还没有释放，这就需要解决互斥量状态恢复的问题。
-    这种情况发生时，由于互斥量处于锁定状态，恢复起来很困难。其他阻塞在这个锁的进程将会一直阻塞下去。
-    但是情况也不仅仅局限于多进程的情况，在多线程中，如果忘记了释放锁，也会导致其他线程阻塞。
-    可以使用pthread_mutexattr_getrobust函数获取健壮的互斥量属性的值。可以用pthread_mutexattr_setrobust函数设置健壮的互斥量属性的值。
-
-
-        
-        
-        
-        
-        
+       
 ```
+     pthread_mutexattr_setrobust介绍
+
+        互斥量健壮性和多个进程间共享的互斥量有关。这意味着，当持有互斥量的进程终止时，锁还没有释放，这就需要解决互斥量状态恢复的问题。  
+        
+        这种情况发生时，由于互斥量处于锁定状态，恢复起来很困难。其他阻塞在这个锁的进程将会一直阻塞下去。  
+        
+        但是情况也不仅仅局限于多进程的情况，在多线程中，如果忘记了释放锁，也会导致其他线程阻塞。  
+        
+        可以使用pthread_mutexattr_getrobust函数获取健壮的互斥量属性的值。可以用pthread_mutexattr_setrobust函数设置健壮的互斥量属性的值。  
+
+```cpp  
+   #include <pthread.h>  
+        pthread_mutexattr_getrobust(pthread_mutexattr_t *restrict attr, int *restrict robust);  
+        pthread_mutexattr_setrobust(pthread_mutexattr_t *attr, int robust);  
+                                    robust:  PTHREAD_MUTEX_STALLED   默认值
+                                             PTHREAD_MUTEX_ROBUST  
+        pthread_mutex_consistent(pthread_mutex_t *mutex);  
+        
+使用说明：
+    健壮属性取值有两种可能的情况:
+        默认值是PTHREAD_MUTEX_STALLED : 这意味着持有互斥量的进程终止时不需要采取特别的动作。这种情况下如果锁没有释放，其他进程或者线程仍然不能获取锁  
+                PTHREAD_MUTEX_ROBUST  : 这个情况下，如果锁没有释放，其他进程或者线程加锁时就会返回EOWNERDEAD的值  
+
+        在第二种情况下，如果返回了EOWNERDEAD后，需要调用pthread_mutex_consistent去恢复，如果不去恢复的话，当这个锁解锁以后，其他线程就再也不能拿到锁了
+        
+示例：  
+    //1. creat mutex
+    pthread_mutex_t *syncMutex = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));   //如果是动态分配的锁，则在调用free之前必须先调用pthread_mutex_destroy释放锁占用的资源；静态不需要
+    //2. creat mutexattr
+    pthread_mutexattr_t mattr; 
+    //3. init mutexattr
+    pthread_mutexattr_init(&mattr);   
+    //4. set muteattr to process sync
+    pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+    //5. set robust
+    pthread_mutexattr_setrobust(&mattr, PTHREAD_MUTEX_ROBUST);
+    //6. init mutex
+    if(0 != pthread_mutex_init(syncMutex, &mattr))
+    {
+        std::cout << "init mutex failed" << std::endl;
+    }
+    //7. destroy mutexattr
+    pthread_mutexattr_destroy(&mattr); //将锁属性释放掉
+```
+
+参考：https://blog.csdn.net/qq_31442743/article/details/105025450
+
 
     b) 文件锁  
 
