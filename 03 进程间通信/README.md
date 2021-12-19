@@ -1505,22 +1505,27 @@ kill有两种经典应用场景：
 
 ```cpp
     #int setitimer(int which, const struct itimerval *new_value, struct itimerval *old_value);
-    
+
+功能：一是指定一段时间后，才执行某个function，二是每间格一段时间就执行某个function
+   
 参数：  
     which:    定时器类型  
         - ITIMER_REAL    自然定时法SIGALRM  
 	- ITIMER_VIATUAL 计算进程执行时间SIGVTALRM  
 	- ITIMER_PROF    进程执行时间+调度时间ITIMER_VIRTUAL  
     new_value: 要设置的闹钟时间  
-    odl_value: 原闹钟时间  
-               struct itimerval{  
-	           struct timeval it_interval;  //周期性的时间设置  
-		   struct timeval it_value;     //下次的闹钟时间  
-	       }
-	       struct timeval{  
-	           time_t tv_sec;  //秒
-		   suseconds_t tv_usec; //微妙  
-	       }
+    old_value: 获取原闹钟时间 
+
+时间结构体：  
+struct itimerval{  
+   struct timeval it_interval;  //周期性的时间设置，循环执行
+   struct timeval it_value;     //下次的闹钟时间，单次执行
+}
+struct timeval{  
+   time_t tv_sec;  //秒
+   suseconds_t tv_usec; //微妙  
+}
+
 示例1：
 #include <stdio.h>
 #include <unistd.h>
@@ -1536,7 +1541,7 @@ int main()
 {
     signal(SIGALRM, catch_sig);
     struct itimerval myit = {{3, 0}, {5, 0}}; //第一次等待5s，之后每隔3s  
-    setitimer(ITIMER_REAL, &myit, NULL);
+    setitimer(ITIMER_REAL, &myit, NULL); //
     
     while(1){
         printf("who can kill me \n");
@@ -1574,6 +1579,8 @@ int main()
 	sleep(1);
     }
 }
+
+参考：https://www.cnblogs.com/dandingyy/archive/2012/08/23/2653218.html
 ```
 
   e) 信号集处理函数  
